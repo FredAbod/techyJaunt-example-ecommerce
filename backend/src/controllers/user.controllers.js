@@ -1,6 +1,7 @@
 const User = require("../models/user.models");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const sendEmail = require("../helpers/email");
 require("dotenv").config();
 
 const signUp = async (req, res) => {
@@ -58,6 +59,8 @@ const login = async (req, res) => {
       },
     );
 
+    await sendEmail(user.email, "Someone Just Logged In To Your Account", "Someone Just Logged In To Your Account");
+
     return res
       .status(200)
       .json({ message: "Login successful", user: user, token: token });
@@ -79,13 +82,9 @@ const sendOtp = async (req, res) => {
     user.otp = otp;
     user.otpExpiresAt = otpExpiresAt;
     await user.save();
-    return res
-      .status(200)
-      .json({
-        message: "OTP sent successfully",
-        otp: otp,
-        otpExpiresAt: otpExpiresAt,
-      });
+
+    await sendEmail(user.email, "OTP for verification", `Your OTP is ${otp}`);
+    return res.status(200).json({ message: "OTP sent successfully" });
   } catch (e) {
     console.log(e);
     return res.status(500).json({ message: "Internal server error" });
