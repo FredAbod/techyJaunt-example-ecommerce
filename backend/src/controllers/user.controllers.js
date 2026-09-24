@@ -2,7 +2,52 @@ const User = require("../models/user.models");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const sendEmail = require("../helpers/email");
+const toPublicUser = require("../helpers/publicUser");
+const {
+  isConfigured,
+  signUpload,
+  destroyAsset,
+  assertOwnedImage,
+} = require("../helpers/cloudinary");
 require("dotenv").config();
+
+const ADDRESS_LIMITS = {
+  line1: 120,
+  city: 80,
+  state: 80,
+  country: 80,
+  postalCode: 20,
+};
+
+const pickAddress = (input, current = {}) => {
+  if (input === null || typeof input !== "object" || Array.isArray(input)) {
+    return { error: "Invalid address" };
+  }
+
+  const next = {
+    line1: current.line1 || "",
+    city: current.city || "",
+    state: current.state || "",
+    country: current.country || "",
+    postalCode: current.postalCode || "",
+  };
+
+  for (const key of Object.keys(input)) {
+    if (!Object.prototype.hasOwnProperty.call(ADDRESS_LIMITS, key)) {
+      return { error: "Invalid address" };
+    }
+    if (typeof input[key] !== "string") {
+      return { error: "Invalid address" };
+    }
+    const value = input[key].trim();
+    if (value.length > ADDRESS_LIMITS[key]) {
+      return { error: "Invalid address" };
+    }
+    next[key] = value;
+  }
+
+  return { address: next };
+};
 
 const sendOtpEmail = (user, otp, { subject, heading, purpose }) =>
   sendEmail({
@@ -22,7 +67,16 @@ const sendOtpEmail = (user, otp, { subject, heading, purpose }) =>
 const signUp = async (req, res) => {
   const { firstName, lastName, email, password } = req.body;
   try {
-    if (!firstName || !lastName || !email || !password) {
+    if (
+      typeof firstName !== "string" ||
+      typeof lastName !== "string" ||
+      !firstName.trim() ||
+      !lastName.trim() ||
+      firstName.trim().length > 50 ||
+      lastName.trim().length > 50 ||
+      !email ||
+      !password
+    ) {
       return res.status(400).json({ message: "All fields are required" });
     }
     const hashedPassword = await bcrypt.hash(password, 10);
@@ -32,14 +86,14 @@ const signUp = async (req, res) => {
     }
 
     const newUser = await User.create({
-      firstName,
-      lastName,
+      firstName: firstName.trim(),
+      lastName: lastName.trim(),
       email,
       password: hashedPassword,
     });
     return res
       .status(201)
-      .json({ message: "User created successfully", user: newUser });
+      .json({ message: "User created successfully", user: toPublicUser(newUser) });
   } catch (e) {
     console.log(e);
     return res.status(500).json({ message: "Internal server error" });
@@ -89,7 +143,7 @@ const login = async (req, res) => {
 
     return res
       .status(200)
-      .json({ message: "Login successful", user: user, token: token });
+      .json({ message: "Login successful", user: toPublicUser(user), token: token });
   } catch (e) {
     console.log(e);
     return res.status(500).json({ message: "Internal server error" });
@@ -232,6 +286,107 @@ const resetPassword = async (req, res) => {
   }
 };
 
+const getMe = async (req, res) => {
+  return res.status(200).json({ user: toPublicUser(req.user) });
+};
+
+const updateMe = async (req, res) => {
+  const { firstName, lastName, phone, address } = req.body;
+
+  try {
+    if (firstName !== undefined) {
+      if (typeof firstName !== "string" || !firstName.trim() || firstName.trim().length > 50) {
+        return res.status(400).json({ message: "Invalid first name" });
+      }
+      req.user.firstName = firstName.trim();
+    }
+
+    if (lastName !== undefined) {
+      if (typeof lastName !== "string" || !lastName.trim() || lastName.trim().length > 50) {
+        return res.status(400).json({ message: "Invalid last name" });
+      }
+      req.user.lastName = lastName.trim();
+    }
+
+    if (phone !== undefined) {
+      if (phone !== null && typeof phone !== "string") {
+        return res.status(400).json({ message: "Invalid phone" });
+      }
+      const value = phone === null ? "" : phone.trim();
+      if (value.length > 20) {
+        return res.status(400).json({ message: "Invalid phone" });
+      }
+      req.user.phone = value || null;
+    }
+
+    if (address !== undefined) {
+      const picked = pickAddress(address, req.user.address || {});
+      if (picked.error) {
+        return res.status(400).json({ message: picked.error });
+      }
+      req.user.address = picked.address;
+    }
+
+    if (
+      firstName === undefined &&
+      lastName === undefined &&
+      phone === undefined &&
+      address === undefined
+    ) {
+      return res.status(400).json({ message: "No valid fields to update" });
+    }
+
+    await req.user.save();
+    return res.status(200).json({ message: "Profile updated", user: toPublicUser(req.user) });
+  } catch (e) {
+    console.log(e);
+    return res.status(500).json({ message: "Internal server error" });
+  }
+};
+
+const signAvatar = async (req, res) => {
+  if (!isConfigured()) {
+    return res.status(500).json({ message: "Image upload is not configured" });
+  }
+
+  const folder = `avatars/${req.user._id}`;
+  return res.status(200).json(signUpload(folder));
+};
+
+const confirmAvatar = async (req, res) => {
+  if (!isConfigured()) {
+    return res.status(500).json({ message: "Image upload is not configured" });
+  }
+
+  try {
+    const folder = `avatars/${req.user._id}`;
+    const result = await assertOwnedImage(req.body.publicId, folder);
+    if (result.error) {
+      return res.status(400).json({ message: result.error });
+    }
+
+    const previous = req.user.profilePicturePublicId;
+    req.user.profilePictureUrl = result.image.url;
+    req.user.profilePicturePublicId = result.image.publicId;
+    await req.user.save();
+
+    if (previous && previous !== result.image.publicId) {
+      try {
+        await destroyAsset(previous);
+      } catch (error) {
+        console.log(error);
+      }
+    }
+
+    return res
+      .status(200)
+      .json({ message: "Profile picture updated", user: toPublicUser(req.user) });
+  } catch (e) {
+    console.log(e);
+    return res.status(500).json({ message: "Internal server error" });
+  }
+};
+
 module.exports = {
   signUp,
   login,
@@ -240,4 +395,8 @@ module.exports = {
   resendOtp,
   forgotPassword,
   resetPassword,
+  getMe,
+  updateMe,
+  signAvatar,
+  confirmAvatar,
 };
