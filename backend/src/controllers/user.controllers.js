@@ -4,6 +4,21 @@ const jwt = require("jsonwebtoken");
 const sendEmail = require("../helpers/email");
 require("dotenv").config();
 
+const sendOtpEmail = (user, otp, { subject, heading, purpose }) =>
+  sendEmail({
+    to: user.email,
+    subject,
+    template: "otp",
+    text: `Hi ${user.firstName}, your code is ${otp}. Use it to ${purpose}. It expires in 10 minutes.`,
+    data: {
+      firstName: user.firstName,
+      otp,
+      heading,
+      purpose,
+      expiresInMinutes: 10,
+    },
+  });
+
 const signUp = async (req, res) => {
   const { firstName, lastName, email, password } = req.body;
   try {
@@ -59,7 +74,18 @@ const login = async (req, res) => {
       },
     );
 
-    await sendEmail(user.email, "Someone Just Logged In To Your Account", "Someone Just Logged In To Your Account");
+    const loginTime = new Date().toUTCString();
+    await sendEmail({
+      to: user.email,
+      subject: "Someone just signed in to your account",
+      template: "login-alert",
+      text: `Hi ${user.firstName}, someone just signed in to your TechyJaunt account (${user.email}) at ${loginTime}. If this was not you, reset your password.`,
+      data: {
+        firstName: user.firstName,
+        email: user.email,
+        loginTime,
+      },
+    });
 
     return res
       .status(200)
@@ -83,7 +109,11 @@ const sendOtp = async (req, res) => {
     user.otpExpiresAt = otpExpiresAt;
     await user.save();
 
-    await sendEmail(user.email, "OTP for verification", `Your OTP is ${otp}`);
+    await sendOtpEmail(user, otp, {
+      subject: "Your verification code",
+      heading: "Verify your email",
+      purpose: "verify your email address",
+    });
     return res.status(200).json({ message: "OTP sent successfully" });
   } catch (e) {
     console.log(e);
@@ -130,6 +160,11 @@ const resendOtp = async (req, res) => {
     user.otp = otp;
     user.otpExpiresAt = otpExpiresAt;
     await user.save();
+    await sendOtpEmail(user, otp, {
+      subject: "Your verification code",
+      heading: "Verify your email",
+      purpose: "verify your email address",
+    });
     return res
       .status(200)
       .json({
@@ -158,6 +193,11 @@ const forgotPassword = async (req, res) => {
     user.otp = otp;
     user.otpExpiresAt = otpExpiresAt;
     await user.save();
+    await sendOtpEmail(user, otp, {
+      subject: "Your password reset code",
+      heading: "Reset your password",
+      purpose: "reset your password",
+    });
     return res
       .status(200)
       .json({
