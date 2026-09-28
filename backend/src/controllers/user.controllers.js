@@ -1,96 +1,32 @@
 const User = require("../models/user.models");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
-const sendEmail = require("../helpers/email");
 const toPublicUser = require("../helpers/publicUser");
+const createOtp = require("../helpers/otp");
+const { sendOtpEmail, sendLoginAlertEmail } = require("../helpers/userEmails");
 const {
   isConfigured,
   signUpload,
   destroyAsset,
   assertOwnedImage,
 } = require("../helpers/cloudinary");
-require("dotenv").config();
-
-const ADDRESS_LIMITS = {
-  line1: 120,
-  city: 80,
-  state: 80,
-  country: 80,
-  postalCode: 20,
-};
-
-const pickAddress = (input, current = {}) => {
-  if (input === null || typeof input !== "object" || Array.isArray(input)) {
-    return { error: "Invalid address" };
-  }
-
-  const next = {
-    line1: current.line1 || "",
-    city: current.city || "",
-    state: current.state || "",
-    country: current.country || "",
-    postalCode: current.postalCode || "",
-  };
-
-  for (const key of Object.keys(input)) {
-    if (!Object.prototype.hasOwnProperty.call(ADDRESS_LIMITS, key)) {
-      return { error: "Invalid address" };
-    }
-    if (typeof input[key] !== "string") {
-      return { error: "Invalid address" };
-    }
-    const value = input[key].trim();
-    if (value.length > ADDRESS_LIMITS[key]) {
-      return { error: "Invalid address" };
-    }
-    next[key] = value;
-  }
-
-  return { address: next };
-};
-
-const sendOtpEmail = (user, otp, { subject, heading, purpose }) =>
-  sendEmail({
-    to: user.email,
-    subject,
-    template: "otp",
-    text: `Hi ${user.firstName}, your code is ${otp}. Use it to ${purpose}. It expires in 10 minutes.`,
-    data: {
-      firstName: user.firstName,
-      otp,
-      heading,
-      purpose,
-      expiresInMinutes: 10,
-    },
-  });
 
 const signUp = async (req, res) => {
   const { firstName, lastName, email, password } = req.body;
   try {
-    if (
-      typeof firstName !== "string" ||
-      typeof lastName !== "string" ||
-      !firstName.trim() ||
-      !lastName.trim() ||
-      firstName.trim().length > 50 ||
-      lastName.trim().length > 50 ||
-      !email ||
-      !password
-    ) {
-      return res.status(400).json({ message: "All fields are required" });
-    }
-    const hashedPassword = await bcrypt.hash(password, 10);
-    const user = await User.findOne({ email });
-    if (user) {
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
       return res.status(400).json({ message: "User already exists" });
     }
 
+    const hashedPassword = await bcrypt.hash(password, 10);
     const newUser = await User.create({
-      firstName: firstName.trim(),
-      lastName: lastName.trim(),
+      firstName,
+      lastName,
       email,
       password: hashedPassword,
     });
+
     return res
       .status(201)
       .json({ message: "User created successfully", user: toPublicUser(newUser) });
@@ -103,9 +39,6 @@ const signUp = async (req, res) => {
 const login = async (req, res) => {
   const { email, password } = req.body;
   try {
-    if (!email || !password) {
-      return res.status(400).json({ message: "All fields are required" });
-    }
     const user = await User.findOne({ email });
     if (!user) {
       return res.status(400).json({ message: "User not found" });
@@ -123,27 +56,14 @@ const login = async (req, res) => {
     const token = jwt.sign(
       { id: user._id, email: user.email },
       process.env.JWT_SECRET,
-      {
-        expiresIn: "1h",
-      },
+      { expiresIn: "1h" },
     );
 
-    const loginTime = new Date().toUTCString();
-    await sendEmail({
-      to: user.email,
-      subject: "Someone just signed in to your account",
-      template: "login-alert",
-      text: `Hi ${user.firstName}, someone just signed in to your TechyJaunt account (${user.email}) at ${loginTime}. If this was not you, reset your password.`,
-      data: {
-        firstName: user.firstName,
-        email: user.email,
-        loginTime,
-      },
-    });
+    await sendLoginAlertEmail(user, new Date().toUTCString());
 
     return res
       .status(200)
-      .json({ message: "Login successful", user: toPublicUser(user), token: token });
+      .json({ message: "Login successful", user: toPublicUser(user), token });
   } catch (e) {
     console.log(e);
     return res.status(500).json({ message: "Internal server error" });
@@ -151,14 +71,13 @@ const login = async (req, res) => {
 };
 
 const sendOtp = async (req, res) => {
-  const id = req.params.id;
   try {
-    const user = await User.findById(id);
+    const user = await User.findById(req.params.id);
     if (!user) {
       return res.status(400).json({ message: "User not found" });
     }
-    const otp = Math.floor(100000 + Math.random() * 900000);
-    const otpExpiresAt = Date.now() + 10 * 60 * 1000;
+
+    const { otp, otpExpiresAt } = createOtp();
     user.otp = otp;
     user.otpExpiresAt = otpExpiresAt;
     await user.save();
@@ -168,6 +87,7 @@ const sendOtp = async (req, res) => {
       heading: "Verify your email",
       purpose: "verify your email address",
     });
+
     return res.status(200).json({ message: "OTP sent successfully" });
   } catch (e) {
     console.log(e);
@@ -178,11 +98,11 @@ const sendOtp = async (req, res) => {
 const verifyOtp = async (req, res) => {
   const { otp } = req.body;
   try {
-    const user = await User.findOne({ otp: otp });
+    const user = await User.findOne({ otp });
     if (!user) {
       return res.status(400).json({ message: "User not found" });
     }
-    if (user.otp !== otp) {
+    if (String(user.otp) !== String(otp)) {
       return res.status(400).json({ message: "Invalid OTP" });
     }
     if (user.otpExpiresAt < Date.now()) {
@@ -191,10 +111,12 @@ const verifyOtp = async (req, res) => {
     if (user.isVerified) {
       return res.status(400).json({ message: "Email already verified" });
     }
+
     user.isVerified = true;
     user.otp = null;
     user.otpExpiresAt = null;
     await user.save();
+
     return res.status(200).json({ message: "Email verified successfully" });
   } catch (e) {
     console.log(e);
@@ -203,29 +125,28 @@ const verifyOtp = async (req, res) => {
 };
 
 const resendOtp = async (req, res) => {
-  const id = req.params.id;
   try {
-    const user = await User.findById(id);
+    const user = await User.findById(req.params.id);
     if (!user) {
       return res.status(400).json({ message: "User not found" });
     }
-    const otp = Math.floor(100000 + Math.random() * 900000);
-    const otpExpiresAt = Date.now() + 10 * 60 * 1000;
+
+    const { otp, otpExpiresAt } = createOtp();
     user.otp = otp;
     user.otpExpiresAt = otpExpiresAt;
     await user.save();
+
     await sendOtpEmail(user, otp, {
       subject: "Your verification code",
       heading: "Verify your email",
       purpose: "verify your email address",
     });
-    return res
-      .status(200)
-      .json({
-        message: "OTP sent successfully",
-        otp: otp,
-        otpExpiresAt: otpExpiresAt,
-      });
+
+    return res.status(200).json({
+      message: "OTP sent successfully",
+      otp,
+      otpExpiresAt,
+    });
   } catch (e) {
     console.log(e);
     return res.status(500).json({ message: "Internal server error" });
@@ -242,23 +163,23 @@ const forgotPassword = async (req, res) => {
     if (!user.isVerified) {
       return res.status(400).json({ message: "User is not verified" });
     }
-    const otp = Math.floor(100000 + Math.random() * 900000);
-    const otpExpiresAt = Date.now() + 10 * 60 * 1000;
+
+    const { otp, otpExpiresAt } = createOtp();
     user.otp = otp;
     user.otpExpiresAt = otpExpiresAt;
     await user.save();
+
     await sendOtpEmail(user, otp, {
       subject: "Your password reset code",
       heading: "Reset your password",
       purpose: "reset your password",
     });
-    return res
-      .status(200)
-      .json({
-        message: "OTP sent successfully",
-        otp: otp,
-        otpExpiresAt: otpExpiresAt,
-      });
+
+    return res.status(200).json({
+      message: "OTP sent successfully",
+      otp,
+      otpExpiresAt,
+    });
   } catch (e) {
     console.log(e);
     return res.status(500).json({ message: "Internal server error" });
@@ -266,19 +187,21 @@ const forgotPassword = async (req, res) => {
 };
 
 const resetPassword = async (req, res) => {
-    const { otp, newPassword } = req.body;
-    try {
-        const user = await User.findOne({ otp: otp });
-        if(!user){
-            return res.status(400).json({ message: "User not found" });
-        }
-    if(user.otpExpiresAt < Date.now()){
-        return res.status(400).json({ message: "OTP expired" });
+  const { otp, newPassword } = req.body;
+  try {
+    const user = await User.findOne({ otp });
+    if (!user) {
+      return res.status(400).json({ message: "User not found" });
     }
+    if (user.otpExpiresAt < Date.now()) {
+      return res.status(400).json({ message: "OTP expired" });
+    }
+
     user.password = await bcrypt.hash(newPassword, 10);
     user.otp = null;
     user.otpExpiresAt = null;
     await user.save();
+
     return res.status(200).json({ message: "Password reset successfully" });
   } catch (e) {
     console.log(e);
@@ -295,48 +218,26 @@ const updateMe = async (req, res) => {
 
   try {
     if (firstName !== undefined) {
-      if (typeof firstName !== "string" || !firstName.trim() || firstName.trim().length > 50) {
-        return res.status(400).json({ message: "Invalid first name" });
-      }
-      req.user.firstName = firstName.trim();
+      req.user.firstName = firstName;
     }
-
     if (lastName !== undefined) {
-      if (typeof lastName !== "string" || !lastName.trim() || lastName.trim().length > 50) {
-        return res.status(400).json({ message: "Invalid last name" });
-      }
-      req.user.lastName = lastName.trim();
+      req.user.lastName = lastName;
     }
-
     if (phone !== undefined) {
-      if (phone !== null && typeof phone !== "string") {
-        return res.status(400).json({ message: "Invalid phone" });
-      }
-      const value = phone === null ? "" : phone.trim();
-      if (value.length > 20) {
-        return res.status(400).json({ message: "Invalid phone" });
-      }
-      req.user.phone = value || null;
+      req.user.phone = phone === "" ? null : phone;
     }
-
     if (address !== undefined) {
-      const picked = pickAddress(address, req.user.address || {});
-      if (picked.error) {
-        return res.status(400).json({ message: picked.error });
-      }
-      req.user.address = picked.address;
-    }
-
-    if (
-      firstName === undefined &&
-      lastName === undefined &&
-      phone === undefined &&
-      address === undefined
-    ) {
-      return res.status(400).json({ message: "No valid fields to update" });
+      req.user.address = {
+        line1: address.line1 ?? req.user.address?.line1 ?? "",
+        city: address.city ?? req.user.address?.city ?? "",
+        state: address.state ?? req.user.address?.state ?? "",
+        country: address.country ?? req.user.address?.country ?? "",
+        postalCode: address.postalCode ?? req.user.address?.postalCode ?? "",
+      };
     }
 
     await req.user.save();
+    // const user = await User.findByIdAndUpdate(req.user._id, { $set: req.body }, { new: true });
     return res.status(200).json({ message: "Profile updated", user: toPublicUser(req.user) });
   } catch (e) {
     console.log(e);
@@ -349,8 +250,7 @@ const signAvatar = async (req, res) => {
     return res.status(500).json({ message: "Image upload is not configured" });
   }
 
-  const folder = `avatars/${req.user._id}`;
-  return res.status(200).json(signUpload(folder));
+  return res.status(200).json(signUpload(`avatars/${req.user._id}`));
 };
 
 const confirmAvatar = async (req, res) => {

@@ -1,6 +1,17 @@
 const express = require("express");
 const router = express.Router();
 const { requireAuth } = require("../middlewares/auth");
+const validate = require("../middlewares/validate");
+const {
+  signUpSchema,
+  loginSchema,
+  userIdParamSchema,
+  otpSchema,
+  forgotPasswordSchema,
+  resetPasswordSchema,
+  updateMeSchema,
+  confirmAvatarSchema,
+} = require("../validators/user.validators");
 const {
   signUp,
   login,
@@ -15,16 +26,21 @@ const {
   confirmAvatar,
 } = require("../controllers/user.controllers");
 
-router.post("/signup", signUp);
-router.post("/login", login);
+router.post("/signup", validate(signUpSchema), signUp);
+router.post("/login", validate(loginSchema), login);
 router.get("/me", requireAuth, getMe);
-router.patch("/me", requireAuth, updateMe);
+router.patch("/me", requireAuth, validate(updateMeSchema), updateMe);
 router.post("/me/avatar/signature", requireAuth, signAvatar);
-router.post("/me/avatar", requireAuth, confirmAvatar);
-router.post("/send-otp/:id", sendOtp);
-router.post("/verify-otp", verifyOtp);
-router.post("/resend-otp/:id", resendOtp);
-router.post("/forgot-password", forgotPassword);
-router.post("/reset-password", resetPassword);
+router.post(
+  "/me/avatar",
+  requireAuth,
+  validate(confirmAvatarSchema),
+  confirmAvatar,
+);
+router.post("/send-otp/:id", validate(userIdParamSchema, "params"), sendOtp);
+router.post("/verify-otp", validate(otpSchema), verifyOtp);
+router.post("/resend-otp/:id", validate(userIdParamSchema, "params"), resendOtp);
+router.post("/forgot-password", validate(forgotPasswordSchema), forgotPassword);
+router.post("/reset-password", validate(resetPasswordSchema), resetPassword);
 
 module.exports = router;
