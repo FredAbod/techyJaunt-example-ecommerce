@@ -4,7 +4,8 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "dev": "nodemon index.js"
+    "dev": "nodemon index.js",
+    "seed:products": "node src/seeds/products.js"
   },
   "keywords": [],
   "type": "commonjs",

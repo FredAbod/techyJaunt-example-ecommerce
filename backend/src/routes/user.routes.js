@@ -5,8 +5,8 @@ const validate = require("../middlewares/validate");
 const {
   signUpSchema,
   loginSchema,
-  userIdParamSchema,
-  otpSchema,
+  verifyOtpSchema,
+  resendOtpSchema,
   forgotPasswordSchema,
   resetPasswordSchema,
   updateMeSchema,
@@ -15,7 +15,6 @@ const {
 const {
   signUp,
   login,
-  sendOtp,
   verifyOtp,
   resendOtp,
   forgotPassword,
@@ -37,9 +36,8 @@ router.post(
   validate(confirmAvatarSchema),
   confirmAvatar,
 );
-router.post("/send-otp/:id", validate(userIdParamSchema, "params"), sendOtp);
-router.post("/verify-otp", validate(otpSchema), verifyOtp);
-router.post("/resend-otp/:id", validate(userIdParamSchema, "params"), resendOtp);
+router.post("/verify-otp", validate(verifyOtpSchema), verifyOtp);
+router.post("/resend-otp", validate(resendOtpSchema), resendOtp);
 router.post("/forgot-password", validate(forgotPasswordSchema), forgotPassword);
 router.post("/reset-password", validate(resetPasswordSchema), resetPassword);
 

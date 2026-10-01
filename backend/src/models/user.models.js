@@ -75,14 +75,27 @@ const userSchema = new Schema({
         type: Boolean,
         default: false
     },
-    otp:{
+    otpHash: {
         type: String,
-        default: null,
-        // unique: true
+        default: null
     },
-    otpExpiresAt:{
+    otpPurpose: {
+        type: String,
+        enum: ['verify-email', 'reset-password', null],
+        default: null
+    },
+    otpExpiresAt: {
         type: Date,
         default: null
+    },
+    otpSentAt: {
+        type: Date,
+        default: null
+    },
+    otpAttempts: {
+        type: Number,
+        default: 0,
+        min: 0
     }
 }, { timestamps: true, versionKey: false });
 

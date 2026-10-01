@@ -1,7 +1,5 @@
 const Joi = require("joi");
 
-const objectId = Joi.string().hex().length(24);
-
 const addressSchema = Joi.object({
   line1: Joi.string().trim().max(120).allow(""),
   city: Joi.string().trim().max(80).allow(""),
@@ -22,14 +20,20 @@ const loginSchema = Joi.object({
   password: Joi.string().min(1).required(),
 });
 
-const userIdParamSchema = Joi.object({
-  id: objectId.required(),
+const otpField = Joi.alternatives()
+  .try(
+    Joi.string().trim().pattern(/^\d{6}$/),
+    Joi.number().integer().min(100000).max(999999),
+  )
+  .required();
+
+const verifyOtpSchema = Joi.object({
+  email: Joi.string().trim().email().required(),
+  otp: otpField,
 });
 
-const otpSchema = Joi.object({
-  otp: Joi.alternatives()
-    .try(Joi.string().trim().pattern(/^\d{6}$/), Joi.number().integer().min(100000).max(999999))
-    .required(),
+const resendOtpSchema = Joi.object({
+  email: Joi.string().trim().email().required(),
 });
 
 const forgotPasswordSchema = Joi.object({
@@ -37,9 +41,8 @@ const forgotPasswordSchema = Joi.object({
 });
 
 const resetPasswordSchema = Joi.object({
-  otp: Joi.alternatives()
-    .try(Joi.string().trim().pattern(/^\d{6}$/), Joi.number().integer().min(100000).max(999999))
-    .required(),
+  email: Joi.string().trim().email().required(),
+  otp: otpField,
   newPassword: Joi.string().min(1).required(),
 });
 
@@ -61,8 +64,8 @@ const confirmAvatarSchema = Joi.object({
 module.exports = {
   signUpSchema,
   loginSchema,
-  userIdParamSchema,
-  otpSchema,
+  verifyOtpSchema,
+  resendOtpSchema,
   forgotPasswordSchema,
   resetPasswordSchema,
   updateMeSchema,

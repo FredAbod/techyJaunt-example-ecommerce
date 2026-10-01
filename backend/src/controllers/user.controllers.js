@@ -2,7 +2,7 @@ const User = require("../models/user.models");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const toPublicUser = require("../helpers/publicUser");
-const createOtp = require("../helpers/otp");
+const { assignOtp, clearOtp, isOtpCoolingDown, checkOtp } = require("../helpers/otp");
 const { sendOtpEmail, sendLoginAlertEmail } = require("../helpers/userEmails");
 const {
   isConfigured,
@@ -20,16 +20,30 @@ const signUp = async (req, res) => {
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
-    const newUser = await User.create({
+    const newUser = new User({
       firstName,
       lastName,
       email,
       password: hashedPassword,
     });
+    const otp = assignOtp(newUser, "verify-email");
+    await newUser.save();
 
-    return res
-      .status(201)
-      .json({ message: "User created successfully", user: toPublicUser(newUser) });
+    try {
+      await sendOtpEmail(newUser, otp, {
+        subject: "Your verification code",
+        heading: "Verify your email",
+        purpose: "verify your email address",
+      });
+    } catch (error) {
+      await User.deleteOne({ _id: newUser._id });
+      throw error;
+    }
+
+    return res.status(201).json({
+      message: "User created successfully. A verification code was sent to your email.",
+      user: toPublicUser(newUser),
+    });
   } catch (e) {
     console.log(e);
     return res.status(500).json({ message: "Internal server error" });
@@ -70,51 +84,24 @@ const login = async (req, res) => {
   }
 };
 
-const sendOtp = async (req, res) => {
-  try {
-    const user = await User.findById(req.params.id);
-    if (!user) {
-      return res.status(400).json({ message: "User not found" });
-    }
-
-    const { otp, otpExpiresAt } = createOtp();
-    user.otp = otp;
-    user.otpExpiresAt = otpExpiresAt;
-    await user.save();
-
-    await sendOtpEmail(user, otp, {
-      subject: "Your verification code",
-      heading: "Verify your email",
-      purpose: "verify your email address",
-    });
-
-    return res.status(200).json({ message: "OTP sent successfully" });
-  } catch (e) {
-    console.log(e);
-    return res.status(500).json({ message: "Internal server error" });
-  }
-};
-
 const verifyOtp = async (req, res) => {
-  const { otp } = req.body;
+  const { email, otp } = req.body;
   try {
-    const user = await User.findOne({ otp });
-    if (!user) {
-      return res.status(400).json({ message: "User not found" });
+    const user = await User.findOne({ email });
+    if (!user || user.isVerified) {
+      return res.status(400).json({ message: "Invalid or expired code" });
     }
-    if (String(user.otp) !== String(otp)) {
-      return res.status(400).json({ message: "Invalid OTP" });
-    }
-    if (user.otpExpiresAt < Date.now()) {
-      return res.status(400).json({ message: "OTP expired" });
-    }
-    if (user.isVerified) {
-      return res.status(400).json({ message: "Email already verified" });
+
+    const result = checkOtp(user, String(otp), "verify-email");
+    if (!result.ok) {
+      if (result.failed) {
+        await user.save();
+      }
+      return res.status(400).json({ message: result.error });
     }
 
     user.isVerified = true;
-    user.otp = null;
-    user.otpExpiresAt = null;
+    clearOtp(user);
     await user.save();
 
     return res.status(200).json({ message: "Email verified successfully" });
@@ -125,17 +112,21 @@ const verifyOtp = async (req, res) => {
 };
 
 const resendOtp = async (req, res) => {
+  const { email } = req.body;
   try {
-    const user = await User.findById(req.params.id);
-    if (!user) {
-      return res.status(400).json({ message: "User not found" });
+    const user = await User.findOne({ email });
+    if (!user || user.isVerified) {
+      return res.status(200).json({
+        message: "If an unverified account exists, a verification code was sent.",
+      });
     }
 
-    const { otp, otpExpiresAt } = createOtp();
-    user.otp = otp;
-    user.otpExpiresAt = otpExpiresAt;
-    await user.save();
+    if (isOtpCoolingDown(user)) {
+      return res.status(429).json({ message: "Please wait before requesting another code." });
+    }
 
+    const otp = assignOtp(user, "verify-email");
+    await user.save();
     await sendOtpEmail(user, otp, {
       subject: "Your verification code",
       heading: "Verify your email",
@@ -143,9 +134,7 @@ const resendOtp = async (req, res) => {
     });
 
     return res.status(200).json({
-      message: "OTP sent successfully",
-      otp,
-      otpExpiresAt,
+      message: "If an unverified account exists, a verification code was sent.",
     });
   } catch (e) {
     console.log(e);
@@ -157,18 +146,18 @@ const forgotPassword = async (req, res) => {
   const { email } = req.body;
   try {
     const user = await User.findOne({ email });
-    if (!user) {
-      return res.status(400).json({ message: "User not found" });
-    }
-    if (!user.isVerified) {
-      return res.status(400).json({ message: "User is not verified" });
+    if (!user || !user.isVerified) {
+      return res.status(200).json({
+        message: "If a verified account exists, a reset code was sent.",
+      });
     }
 
-    const { otp, otpExpiresAt } = createOtp();
-    user.otp = otp;
-    user.otpExpiresAt = otpExpiresAt;
+    if (isOtpCoolingDown(user)) {
+      return res.status(429).json({ message: "Please wait before requesting another code." });
+    }
+
+    const otp = assignOtp(user, "reset-password");
     await user.save();
-
     await sendOtpEmail(user, otp, {
       subject: "Your password reset code",
       heading: "Reset your password",
@@ -176,9 +165,7 @@ const forgotPassword = async (req, res) => {
     });
 
     return res.status(200).json({
-      message: "OTP sent successfully",
-      otp,
-      otpExpiresAt,
+      message: "If a verified account exists, a reset code was sent.",
     });
   } catch (e) {
     console.log(e);
@@ -187,19 +174,23 @@ const forgotPassword = async (req, res) => {
 };
 
 const resetPassword = async (req, res) => {
-  const { otp, newPassword } = req.body;
+  const { email, otp, newPassword } = req.body;
   try {
-    const user = await User.findOne({ otp });
-    if (!user) {
-      return res.status(400).json({ message: "User not found" });
+    const user = await User.findOne({ email });
+    if (!user || !user.isVerified) {
+      return res.status(400).json({ message: "Invalid or expired code" });
     }
-    if (user.otpExpiresAt < Date.now()) {
-      return res.status(400).json({ message: "OTP expired" });
+
+    const result = checkOtp(user, String(otp), "reset-password");
+    if (!result.ok) {
+      if (result.failed) {
+        await user.save();
+      }
+      return res.status(400).json({ message: result.error });
     }
 
     user.password = await bcrypt.hash(newPassword, 10);
-    user.otp = null;
-    user.otpExpiresAt = null;
+    clearOtp(user);
     await user.save();
 
     return res.status(200).json({ message: "Password reset successfully" });
@@ -237,7 +228,6 @@ const updateMe = async (req, res) => {
     }
 
     await req.user.save();
-    // const user = await User.findByIdAndUpdate(req.user._id, { $set: req.body }, { new: true });
     return res.status(200).json({ message: "Profile updated", user: toPublicUser(req.user) });
   } catch (e) {
     console.log(e);
@@ -290,7 +280,6 @@ const confirmAvatar = async (req, res) => {
 module.exports = {
   signUp,
   login,
-  sendOtp,
   verifyOtp,
   resendOtp,
   forgotPassword,
