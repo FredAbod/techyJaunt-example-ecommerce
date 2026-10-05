@@ -47,7 +47,14 @@ const userSchema = new Schema({
     },
     password: {
         type: String,
-        required: true
+        required: function requiredPassword() {
+            return !this.googleId;
+        }
+    },
+    googleId: {
+        type: String,
+        unique: true,
+        sparse: true
     },
     role: {
         type: String,

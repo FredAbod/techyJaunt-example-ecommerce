@@ -58,6 +58,10 @@ const login = async (req, res) => {
       return res.status(400).json({ message: "User not found" });
     }
 
+    if (!user.password) {
+      return res.status(400).json({ message: "This account uses Google sign-in" });
+    }
+
     if (!user.isVerified) {
       return res.status(400).json({ message: "User is not verified" });
     }

@@ -1,4 +1,5 @@
 const express = require('express');
+const cors = require('cors');
 const connectDB = require('./src/configs/db');
 const morgan = require('morgan');
 
@@ -6,6 +7,7 @@ require('dotenv').config();
 
 const app = express();
 const userRoutes = require('./src/routes/user.routes');
+const authRoutes = require('./src/routes/auth.routes');
 const categoryRoutes = require('./src/routes/category.routes');
 const productRoutes = require('./src/routes/product.routes');
 const cartRoutes = require('./src/routes/cart.routes');
@@ -13,6 +15,7 @@ const cartRoutes = require('./src/routes/cart.routes');
 
 const PORT = process.env.PORT || 3000;
 
+app.use(cors({ origin: process.env.FRONTEND_URL || 'http://localhost:5173' }));
 app.use(express.json());
 app.use(morgan('dev'));
 
@@ -23,6 +26,7 @@ app.get('/', (req, res) => {
 });
 
 app.use('/api/v1/user', userRoutes);
+app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/categories', categoryRoutes);
 app.use('/api/v1/products', productRoutes);
 app.use('/api/v1/cart', cartRoutes);
