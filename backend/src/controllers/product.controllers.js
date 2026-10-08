@@ -1,7 +1,5 @@
 const Product = require("../models/product.models");
 const Cart = require("../models/cart.models");
-const CATEGORIES = require("../constants/categories");
-const { isObjectId, isNonNegativeInteger } = require("../helpers/validate");
 const {
   isConfigured,
   signUpload,
@@ -23,73 +21,13 @@ const toPublicProduct = (product) => ({
   updatedAt: product.updatedAt,
 });
 
-const pickProductFields = (body, partial) => {
-  const { name, description, price, stock, category } = body;
-  const updates = {};
-
-  if (!partial || name !== undefined) {
-    if (typeof name !== "string" || !name.trim() || name.trim().length > 120) {
-      return { error: "Invalid name" };
-    }
-    updates.name = name.trim();
-  }
-
-  if (!partial || description !== undefined) {
-    if (
-      typeof description !== "string" ||
-      !description.trim() ||
-      description.trim().length > 2000
-    ) {
-      return { error: "Invalid description" };
-    }
-    updates.description = description.trim();
-  }
-
-  if (!partial || price !== undefined) {
-    if (!isNonNegativeInteger(price)) {
-      return { error: "Invalid price" };
-    }
-    updates.price = price;
-  }
-
-  if (!partial || stock !== undefined) {
-    if (!isNonNegativeInteger(stock)) {
-      return { error: "Invalid stock" };
-    }
-    updates.stock = stock;
-  }
-
-  if (!partial || category !== undefined) {
-    if (!CATEGORIES.includes(category)) {
-      return { error: "Invalid category" };
-    }
-    updates.category = category;
-  }
-
-  if (partial && Object.keys(updates).length === 0) {
-    return { error: "No valid fields to update" };
-  }
-
-  return { updates };
-};
-
 const listProducts = async (req, res) => {
-  try {
-    const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
-    let limit = parseInt(req.query.limit, 10) || 20;
-    if (!Number.isInteger(limit) || limit < 1) {
-      limit = 20;
-    }
-    if (limit > 50) {
-      limit = 50;
-    }
+  const { page, limit, category } = req.query;
 
+  try {
     const filter = {};
-    if (req.query.category !== undefined) {
-      if (!CATEGORIES.includes(req.query.category)) {
-        return res.status(400).json({ message: "Invalid category" });
-      }
-      filter.category = req.query.category;
+    if (category !== undefined) {
+      filter.category = category;
     }
 
     const [products, total] = await Promise.all([
@@ -113,10 +51,6 @@ const listProducts = async (req, res) => {
 };
 
 const getProduct = async (req, res) => {
-  if (!isObjectId(req.params.id)) {
-    return res.status(400).json({ message: "Invalid product id" });
-  }
-
   try {
     const product = await Product.findById(req.params.id);
     if (!product) {
@@ -130,13 +64,8 @@ const getProduct = async (req, res) => {
 };
 
 const createProduct = async (req, res) => {
-  const picked = pickProductFields(req.body, false);
-  if (picked.error) {
-    return res.status(400).json({ message: picked.error });
-  }
-
   try {
-    const product = await Product.create(picked.updates);
+    const product = await Product.create(req.body);
     return res.status(201).json({ message: "Product created", product: toPublicProduct(product) });
   } catch (e) {
     console.log(e);
@@ -145,22 +74,13 @@ const createProduct = async (req, res) => {
 };
 
 const updateProduct = async (req, res) => {
-  if (!isObjectId(req.params.id)) {
-    return res.status(400).json({ message: "Invalid product id" });
-  }
-
-  const picked = pickProductFields(req.body, true);
-  if (picked.error) {
-    return res.status(400).json({ message: picked.error });
-  }
-
   try {
     const product = await Product.findById(req.params.id);
     if (!product) {
       return res.status(404).json({ message: "Product not found" });
     }
 
-    Object.assign(product, picked.updates);
+    Object.assign(product, req.body);
     await product.save();
     return res.status(200).json({ message: "Product updated", product: toPublicProduct(product) });
   } catch (e) {
@@ -170,10 +90,6 @@ const updateProduct = async (req, res) => {
 };
 
 const deleteProduct = async (req, res) => {
-  if (!isObjectId(req.params.id)) {
-    return res.status(400).json({ message: "Invalid product id" });
-  }
-
   try {
     const product = await Product.findById(req.params.id);
     if (!product) {
@@ -202,9 +118,6 @@ const deleteProduct = async (req, res) => {
 };
 
 const signProductImage = async (req, res) => {
-  if (!isObjectId(req.params.id)) {
-    return res.status(400).json({ message: "Invalid product id" });
-  }
   if (!isConfigured()) {
     return res.status(500).json({ message: "Image upload is not configured" });
   }
@@ -222,9 +135,6 @@ const signProductImage = async (req, res) => {
 };
 
 const confirmProductImage = async (req, res) => {
-  if (!isObjectId(req.params.id)) {
-    return res.status(400).json({ message: "Invalid product id" });
-  }
   if (!isConfigured()) {
     return res.status(500).json({ message: "Image upload is not configured" });
   }

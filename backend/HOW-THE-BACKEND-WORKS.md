@@ -122,7 +122,6 @@ backend/
 
 - One small feature touches many files. Signup uses a route, a validator, a controller, a model, an OTP helper, and an email helper.
 - Beginners get lost jumping between files.
-- The split is not perfect. User input is checked with Joi in `validators/`. Product input is checked inside `product.controllers.js` with `pickProductFields`. Two styles in one app.
 - Some helpers are tiny (`publicUser.js` is one function). That is fine, but it adds another file to open.
 
 A single file would be easier on day one and painful by week three. These folders are the grown-up version of "put toys in labeled boxes."
@@ -186,7 +185,9 @@ Guards. They run before the controller.
 
 ### `src/validators`
 
-Only user routes use these. Each export is a Joi object, not a function that runs by itself. `validate(...)` is what runs them.
+Each export is a Joi object, not a function that runs by itself. `validate(...)` is what runs them. User, product, and cart routes all use this same style.
+
+**`user.validators.js`**
 
 | Schema | Demands |
 | --- | --- |
@@ -199,6 +200,24 @@ Only user routes use these. Each export is a Joi object, not a function that run
 | `updateMeSchema` | at least one of name, phone, address. Unknown address keys are rejected. |
 | `confirmAvatarSchema` | `publicId` string |
 
+**`product.validators.js`**
+
+| Schema | Demands |
+| --- | --- |
+| `createProductSchema` | name, description, integer price, integer stock, category from the allowed list |
+| `updateProductSchema` | at least one of those fields |
+| `listProductsQuerySchema` | optional `page`, `limit` (max 50), `category` |
+| `productIdParamSchema` | Mongo id in `params.id` |
+| `confirmProductImageSchema` | `publicId` string |
+
+**`cart.validators.js`**
+
+| Schema | Demands |
+| --- | --- |
+| `addCartItemSchema` | product id and quantity of at least 1 |
+| `updateCartItemSchema` | quantity of at least 1 |
+| `cartProductIdParamSchema` | Mongo id in `params.productId` |
+
 ### `src/helpers`
 
 Shared tools. Controllers call these so the controller stays a story, not a toolbox.
@@ -208,14 +227,6 @@ Shared tools. Controllers call these so the controller stays a story, not a tool
 | Function | What it does |
 | --- | --- |
 | `toPublicUser` | Builds the user JSON we are willing to show. It leaves out `password`, `otpHash`, and the other secret fields. |
-
-`validate.js` (this one is ids and numbers, not Joi)
-
-| Function | What it does |
-| --- | --- |
-| `isObjectId` | True only for a 24-character Mongo id. |
-| `isNonNegativeInteger` | True for `0, 1, 2...` as a real number, not the string `"2"`. Used for price and stock. |
-| `isPositiveInteger` | True for `1, 2, 3...`. Used for cart quantity. |
 
 `otp.js`
 
@@ -300,13 +311,13 @@ The full URL adds the prefix from `index.js`. Signup is `POST /api/v1/user/signu
 
 | URL | Line of calls | Worker job |
 | --- | --- | --- |
-| `GET /` | `listProducts` | Public list. Optional `category`, `page`, `limit` (max 50). |
-| `GET /:id` | `getProduct` | One product, or 404. |
-| `POST /` | `requireAuth`, `requireAdmin`, `createProduct` | Admin creates a product. |
-| `PATCH /:id` | `requireAuth`, `requireAdmin`, `updateProduct` | Admin edits fields. |
-| `DELETE /:id` | `requireAuth`, `requireAdmin`, `deleteProduct` | Admin deletes it and pulls it out of every cart. |
-| `POST /:id/image/signature` | `requireAuth`, `requireAdmin`, `signProductImage` | Signature for folder `products/{productId}`. |
-| `POST /:id/image` | `requireAuth`, `requireAdmin`, `confirmProductImage` | Save the checked image URL. |
+| `GET /` | `validate(listProductsQuerySchema, "query")` then `listProducts` | Public list. Optional `category`, `page`, `limit` (max 50). |
+| `GET /:id` | `validate(productIdParamSchema, "params")` then `getProduct` | One product, or 404. |
+| `POST /` | `requireAuth`, `requireAdmin`, `validate(createProductSchema)`, `createProduct` | Admin creates a product. |
+| `PATCH /:id` | `requireAuth`, `requireAdmin`, param + body validate, `updateProduct` | Admin edits fields. |
+| `DELETE /:id` | `requireAuth`, `requireAdmin`, param validate, `deleteProduct` | Admin deletes it and pulls it out of every cart. |
+| `POST /:id/image/signature` | `requireAuth`, `requireAdmin`, param validate, `signProductImage` | Signature for folder `products/{productId}`. |
+| `POST /:id/image` | `requireAuth`, `requireAdmin`, param + body validate, `confirmProductImage` | Save the checked image URL. |
 
 ### Cart — `src/routes/cart.routes.js`
 
@@ -315,9 +326,9 @@ Every cart route starts with `requireAuth`. The cart is found with `req.user._id
 | URL | Worker | Job |
 | --- | --- | --- |
 | `GET /api/v1/cart` | `getCart` | Return items with the product's current name, price, and stock. |
-| `POST /items` | `addItem` | Add a quantity, or add to the quantity already there. Reject if that would pass stock. Does not lower stock. |
-| `PATCH /items/:productId` | `updateItem` | Set the quantity. Still cannot pass stock. |
-| `DELETE /items/:productId` | `removeItem` | Take that product out of the cart. |
+| `POST /items` | `validate(addCartItemSchema)` then `addItem` | Add a quantity, or add to the quantity already there. Reject if that would pass stock. Does not lower stock. |
+| `PATCH /items/:productId` | param + body validate, then `updateItem` | Set the quantity. Still cannot pass stock. |
+| `DELETE /items/:productId` | param validate, then `removeItem` | Take that product out of the cart. |
 
 ---
 
@@ -431,15 +442,16 @@ Helpers used only inside this file:
 | Function | What it does |
 | --- | --- |
 | `toPublicProduct` | The product JSON, with `image` as `{ url, publicId }` or null. |
-| `pickProductFields` | Checks name, description, integer price, integer stock, and category. `partial` true means "only check fields they sent." |
 
-**`listProducts`** reads `page` and `limit`, caps limit at 50, filters by category if the query is one of the five names, then `Product.find`, `sort`, `skip`, `limit`, and `countDocuments`.
+Input shape is already checked by Joi on the route. Controllers receive cleaned `req.body`, `req.params`, and `req.query`.
 
-**`getProduct`** checks `isObjectId`, then `Product.findById`.
+**`listProducts`** reads `page`, `limit`, and optional `category` from `req.query`, then `Product.find`, `sort`, `skip`, `limit`, and `countDocuments`.
 
-**`createProduct`** uses `pickProductFields(body, false)` and `Product.create`. The client cannot send an image URL here.
+**`getProduct`** uses `Product.findById(req.params.id)`.
 
-**`updateProduct`** loads the product, `Object.assign`s the checked fields, `save`.
+**`createProduct`** uses `Product.create(req.body)`. The client cannot send an image URL here. Joi strips unknown fields.
+
+**`updateProduct`** loads the product, `Object.assign`s `req.body`, `save`.
 
 **`deleteProduct`** runs `Cart.updateMany` with `$pull` so carts lose that product, then `product.deleteOne()`, then `destroyAsset` if a Cloudinary id exists.
 
@@ -459,11 +471,10 @@ Helpers used only inside this file:
 
 **`addItem`**
 
-1. `isObjectId` and `isPositiveInteger`.
-2. `Product.findById`. Missing product is 404.
-3. `Cart.findOne` or `new Cart`.
-4. If the product is already in the cart, add the quantities. If `nextQuantity > product.stock`, reject.
-5. `save`, then `loadCart` again so the response has names and prices.
+1. `Product.findById(req.body.productId)`. Missing product is 404.
+2. `Cart.findOne` or `new Cart`.
+3. If the product is already in the cart, add the quantities. If `nextQuantity > product.stock`, reject.
+4. `save`, then `loadCart` again so the response has names and prices.
 
 The client does not send a price. The price is always read from the product.
 

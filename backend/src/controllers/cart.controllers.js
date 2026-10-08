@@ -1,6 +1,5 @@
 const Cart = require("../models/cart.models");
 const Product = require("../models/product.models");
-const { isObjectId, isPositiveInteger } = require("../helpers/validate");
 
 const toCartProduct = (product) => ({
   id: product._id,
@@ -41,9 +40,6 @@ const getCart = async (req, res) => {
 
 const addItem = async (req, res) => {
   const { productId, quantity } = req.body;
-  if (!isObjectId(productId) || !isPositiveInteger(quantity)) {
-    return res.status(400).json({ message: "Invalid cart item" });
-  }
 
   try {
     const product = await Product.findById(productId);
@@ -78,10 +74,6 @@ const addItem = async (req, res) => {
 };
 
 const updateItem = async (req, res) => {
-  if (!isObjectId(req.params.productId) || !isPositiveInteger(req.body.quantity)) {
-    return res.status(400).json({ message: "Invalid cart item" });
-  }
-
   try {
     const product = await Product.findById(req.params.productId);
     if (!product) {
@@ -112,10 +104,6 @@ const updateItem = async (req, res) => {
 };
 
 const removeItem = async (req, res) => {
-  if (!isObjectId(req.params.productId)) {
-    return res.status(400).json({ message: "Invalid product id" });
-  }
-
   try {
     const cart = await Cart.findOne({ user: req.user._id });
     if (!cart) {

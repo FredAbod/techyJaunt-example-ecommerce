@@ -9,7 +9,7 @@ const googleAuth = (req, res) => {
   }
 
   const state = jwt.sign({ purpose: "google" }, process.env.JWT_SECRET, {
-    expiresIn: "10m",
+    expiresIn: process.env.GOOGLE_STATE_EXPIRES_IN || "10m",
   });
   const params = new URLSearchParams({
     client_id: process.env.GOOGLE_CLIENT_ID,
