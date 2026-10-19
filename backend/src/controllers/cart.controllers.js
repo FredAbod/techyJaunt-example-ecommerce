@@ -125,4 +125,4 @@ const removeItem = async (req, res) => {
   }
 };
 
-module.exports = { getCart, addItem, updateItem, removeItem };
+module.exports = { getCart, addItem, updateItem, removeItem, loadCart, formatCart };

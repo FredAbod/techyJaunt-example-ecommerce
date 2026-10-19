@@ -1,12 +1,37 @@
-import { useState } from "react";
-import { Link } from "react-router-dom";
-import { formatPrice } from "../api";
+import { useEffect, useRef, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { api, formatPrice } from "../api";
+import { getToken } from "../auth";
 import ProductArt from "../components/ProductArt";
 import { useApp } from "../store";
 
+const MIN_PAYSTACK_KOBO = 5000;
+
 export default function Cart() {
-  const { user, cart, cartCount, updateCartItem, removeCartItem, toast } = useApp();
+  const { user, cart, cartCount, updateCartItem, removeCartItem, checkout, toast } = useApp();
+  const navigate = useNavigate();
   const [busy, setBusy] = useState("");
+  const [paying, setPaying] = useState("");
+  const [wallet, setWallet] = useState(null);
+  const payKey = useRef("");
+
+  useEffect(() => {
+    if (!user) {
+      setWallet(null);
+      return;
+    }
+    let ignore = false;
+    api("/api/v1/wallets", { token: getToken() })
+      .then((data) => {
+        if (!ignore) setWallet(data.wallet);
+      })
+      .catch((error) => {
+        if (!ignore) toast(error.message, "error");
+      });
+    return () => {
+      ignore = true;
+    };
+  }, [user, toast]);
 
   if (!user) {
     return (
@@ -39,6 +64,32 @@ export default function Cart() {
 
   const items = cart.items || [];
   const total = items.reduce((sum, item) => sum + item.product.price * item.quantity, 0);
+  const shortfall = wallet ? Math.max(0, total - wallet.balanceKobo) : total;
+  const canUseWallet = Boolean(wallet && wallet.status === "active" && shortfall === 0 && !paying);
+
+  const pay = async (method) => {
+    if (!payKey.current) payKey.current = crypto.randomUUID();
+    setPaying(method);
+    try {
+      const data = await checkout(method, payKey.current);
+      if (data.authorizationUrl) {
+        window.location.assign(data.authorizationUrl);
+        return;
+      }
+      payKey.current = "";
+      if (data.wallet) setWallet(data.wallet);
+      if (data.order?.id) {
+        navigate(`/payments/callback?order=${data.order.id}`);
+      }
+    } catch (error) {
+      if (error.status && error.status < 500 && error.code !== "payment_starting") {
+        payKey.current = "";
+      }
+      toast(error.message, "error");
+    } finally {
+      setPaying("");
+    }
+  };
 
   if (items.length === 0) {
     return (
@@ -126,14 +177,37 @@ export default function Cart() {
               <dt>Subtotal</dt>
               <dd className="mono">{formatPrice(total)}</dd>
             </div>
+            <div>
+              <dt>Wallet</dt>
+              <dd className="mono">{wallet ? formatPrice(wallet.balanceKobo) : "…"}</dd>
+            </div>
             <div className="total">
               <dt>Total</dt>
               <dd>{formatPrice(total)}</dd>
             </div>
           </dl>
-          <button type="button" className="button grow" disabled>
-            Checkout coming soon
+          {wallet && shortfall > 0 ? (
+            <p className="pay-note">
+              You need {formatPrice(shortfall)} more in your wallet. <Link to="/wallet">Add money</Link>
+            </p>
+          ) : null}
+          <button
+            type="button"
+            className="button grow"
+            disabled={!canUseWallet}
+            onClick={() => pay("wallet")}
+          >
+            {paying === "wallet" ? "Paying…" : "Pay with wallet"}
           </button>
+          <button
+            type="button"
+            className="button ghost grow"
+            disabled={Boolean(paying) || total < MIN_PAYSTACK_KOBO}
+            onClick={() => pay("paystack")}
+          >
+            {paying === "paystack" ? "Opening Paystack…" : "Pay with Paystack"}
+          </button>
+          <p className="pay-note">Card, bank transfer, or USSD. Paystack confirms the money before we mark the order paid.</p>
           <Link className="button ghost grow" to="/shop">
             Keep browsing
           </Link>

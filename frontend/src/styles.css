@@ -1714,3 +1714,121 @@ main {
   left: 50%;
   margin: -24px 0 0 -24px;
 }
+
+/* ---------- wallet & checkout ---------- */
+
+.pay-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.wallet-layout {
+  display: grid;
+  grid-template-columns: 1.1fr 0.9fr;
+  gap: 24px;
+  align-items: start;
+}
+
+.wallet-stack,
+.topup-card,
+.tx-card,
+.balance-card {
+  display: grid;
+  gap: 14px;
+}
+
+.balance-card,
+.topup-card,
+.tx-card {
+  padding: 28px;
+}
+
+.balance-card strong {
+  font-family: var(--display);
+  font-size: clamp(2rem, 5vw, 3.2rem);
+  font-weight: 400;
+  letter-spacing: -0.04em;
+}
+
+.topup-card h2,
+.tx-card h2 {
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: 1.4rem;
+}
+
+.topup-card label {
+  display: grid;
+  gap: 8px;
+}
+
+.topup-card label span {
+  color: var(--ink-soft);
+  font-size: 0.85rem;
+}
+
+.chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.chip {
+  min-height: 40px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  background: transparent;
+  cursor: pointer;
+}
+
+.chip:hover:not(:disabled) {
+  border-color: var(--cyan);
+}
+
+.chip:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.tx-list,
+.callback-order ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.tx-row,
+.callback-order li {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: baseline;
+}
+
+.tx-row p {
+  margin: 0;
+}
+
+.tx-credit {
+  color: var(--green);
+}
+
+.tx-debit {
+  color: var(--pink);
+}
+
+.callback-order {
+  width: 100%;
+  display: grid;
+  gap: 10px;
+}
+
+@media (max-width: 960px) {
+  .wallet-layout {
+    grid-template-columns: 1fr;
+  }
+}

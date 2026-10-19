@@ -1,39 +1,37 @@
-const Wallets = require('../models/wallets.models');
-const User = require('../models/user.models');
+const Wallet = require("../models/wallets.models");
+const asyncHandler = require("../helpers/asyncHandler");
+const { ensureWallet, listTransactions } = require("../services/wallet.service");
+const { toPublicWallet, toPublicTransaction } = require("../helpers/present");
 
+const createWallet = asyncHandler(async (req, res) => {
+  const existing = await Wallet.findOne({ userId: req.user._id });
+  const wallet = await ensureWallet(req.user._id);
+  const created = !existing;
 
+  return res.status(created ? 201 : 200).json({
+    message: created ? "Wallet created successfully" : "Wallet already exists",
+    wallet: toPublicWallet(wallet),
+  });
+});
 
-const createWallet = async (req, res) => {
-    const { userId } = req.user;
-    try {
-        if (!userId) {
-            return res.status(401).json({ message: 'Unauthorized' });
-        }
-        const user = await User.findById(userId);
-        if (!user) {
-            return res.status(404).json({ message: 'User not found' });
-        }
-        // account number should be generate from user.phone - remove th first zero 
-        const accountNumber = user.phone.replace(/^0/, '');
-        const wallet = await Wallets.create({ userId, accountNumber: accountNumber });
-        return res.status(201).json({ message: 'Wallet created successfully', wallet });
-    } catch (error) {
-        return res.status(500).json({ message: 'Internal server error', error: error.message });
-    }
-}
+const getWallet = asyncHandler(async (req, res) => {
+  const wallet = await ensureWallet(req.user._id);
+  return res.status(200).json({
+    message: "Wallet fetched successfully",
+    wallet: toPublicWallet(wallet),
+  });
+});
 
-const getWallet = async (req, res) => {
-    const { userId } = req.user;
-    try {
-        if (!userId) {
-            return res.status(401).json({ message: 'Unauthorized' });
-        }
-        const wallet = await Wallets.findById(userId);
-        return res.status(200).json({ message: 'Wallet fetched successfully', wallet });
-    } catch (error) {
-        return res.status(500).json({ message: 'Internal server error', error: error.message });
-    }
-}
+const getTransactions = asyncHandler(async (req, res) => {
+  const { transactions, nextCursor } = await listTransactions(req.user._id, {
+    limit: req.query.limit,
+    cursor: req.query.cursor,
+  });
 
+  return res.status(200).json({
+    transactions: transactions.map(toPublicTransaction),
+    nextCursor,
+  });
+});
 
-module.exports = { createWallet, getWallet };
+module.exports = { createWallet, getWallet, getTransactions };

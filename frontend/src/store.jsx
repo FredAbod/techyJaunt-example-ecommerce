@@ -82,6 +82,16 @@ export function AppProvider({ children }) {
     [cartRequest],
   );
 
+  const checkout = useCallback(async (method, idempotencyKey) => {
+    const data = await api("/api/v1/payments/checkout", {
+      method: "POST",
+      token: getToken(),
+      body: { method, idempotencyKey },
+    });
+    if (data.cart) setCart(data.cart);
+    return data;
+  }, []);
+
   const cartCount = cart.items.reduce((sum, item) => sum + item.quantity, 0);
 
   const value = useMemo(
@@ -94,10 +104,11 @@ export function AppProvider({ children }) {
       addToCart,
       updateCartItem,
       removeCartItem,
+      checkout,
       toast,
       toasts,
     }),
-    [user, login, logout, cart, cartCount, addToCart, updateCartItem, removeCartItem, toast, toasts],
+    [user, login, logout, cart, cartCount, addToCart, updateCartItem, removeCartItem, checkout, toast, toasts],
   );
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

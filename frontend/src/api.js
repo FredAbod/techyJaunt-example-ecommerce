@@ -18,9 +18,21 @@ export async function api(path, { method = "GET", body, token } = {}) {
 
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(data.message || "Request failed");
+    const error = new Error(data.message || "Request failed");
+    error.status = response.status;
+    error.code = data.code;
+    throw error;
   }
   return data;
+}
+
+export function nairaToKobo(input) {
+  const cleaned = String(input).trim();
+  if (!/^\d+$/.test(cleaned)) return null;
+  const naira = Number(cleaned);
+  if (!Number.isSafeInteger(naira)) return null;
+  const kobo = naira * 100;
+  return Number.isSafeInteger(kobo) ? kobo : null;
 }
 
 export async function startGoogleSignIn() {

@@ -51,6 +51,7 @@ export default function Layout({ children }) {
               Home
             </NavLink>
             <NavLink to="/shop">Catalog</NavLink>
+            {user ? <NavLink to="/wallet">Wallet</NavLink> : null}
             {user ? (
               <button type="button" className="link" onClick={signOut}>
                 Sign out
@@ -105,6 +106,7 @@ export default function Layout({ children }) {
         <nav>
           <Link to="/shop">Catalog</Link>
           <Link to="/cart">Cart</Link>
+          {user ? <Link to="/wallet">Wallet</Link> : null}
           <Link to={user ? "/" : "/signup"}>{user ? `Hi, ${user.firstName}` : "Create account"}</Link>
         </nav>
         <p className="mono muted">© {new Date().getFullYear()} Aether</p>
