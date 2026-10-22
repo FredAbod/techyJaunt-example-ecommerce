@@ -71,10 +71,10 @@ One purse per person. `userId` is unique, so a second purse for the same person 
 | --- | --- |
 | `balanceKobo` | How much is in the purse right now |
 | `currency` | Always `NGN`. We do not mix dollars into a naira purse |
-| `accountNumber` | A random 10-digit number. It is not made from the phone number |
+| `accountNumber` | The next free 10-digit number, starting at 1000000000. The database refuses a second purse with the same number |
 | `status` | `active` or `frozen`. Frozen means "you cannot spend." Money that already left Paystack can still land |
 
-The old code built the account number from the phone. That was a bad idea. Phone numbers can change, two people can look similar, and the phone number is private. A random number does not tell a stranger your phone.
+The old code built the account number from the phone. That was a bad idea. Phone numbers can change, two people can look similar, and the phone number is private. The shop counts upward from 1000000000, so the next purse gets the next number. `accountNumber` is also unique in the database, so a second save with that number is rejected.
 
 Opening a purse is safe to retry. If two requests try at the same moment, one wins and the other reads the purse that won.
 
@@ -335,7 +335,8 @@ backend/
   src/validators/                  Joi shapes
   src/helpers/money.js             the kobo limits
   src/helpers/withTransaction.js   all-or-nothing
-  src/helpers/reference.js         receipt numbers and account numbers
+  src/helpers/reference.js         receipt numbers for Paystack and orders
+  src/models/counter.models.js     the next free wallet account number
   src/middlewares/error.js         safe error JSON
   src/middlewares/rateLimit.js     slows repeated clicks
 ```

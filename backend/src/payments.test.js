@@ -2,7 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const crypto = require("crypto");
 const { signaturesMatch } = require("./services/paystack.client");
-const { paymentReference, orderNumber, accountNumber } = require("./helpers/reference");
+const { paymentReference, orderNumber } = require("./helpers/reference");
 const { MIN_TOPUP_KOBO, MIN_PAYSTACK_KOBO, MAX_CHARGE_KOBO } = require("./helpers/money");
 
 test("Paystack stamp matches only the exact body and secret", () => {
@@ -29,7 +29,6 @@ test("references stay inside the characters Paystack allows", () => {
   assert.match(order, allowed);
   assert.notEqual(topup, paymentReference("wallet_topup"));
   assert.match(orderNumber(), /^TJ[A-F0-9]{10}$/);
-  assert.match(accountNumber(), /^[1-9][0-9]{9}$/);
 });
 
 test("money limits stay whole kobo amounts", () => {

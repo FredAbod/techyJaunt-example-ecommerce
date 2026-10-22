@@ -1,30 +1,44 @@
 const Wallet = require("../models/wallets.models");
+const Counter = require("../models/counter.models");
 const TransactionHistory = require("../models/transactionHistory");
 const AppError = require("../helpers/appError");
 const { isDuplicateKey } = require("../helpers/mongoError");
-const { accountNumber } = require("../helpers/reference");
+
+const FIRST_ACCOUNT_NUMBER = 1_000_000_000;
+const LAST_ACCOUNT_NUMBER = 9_999_999_999;
+
+async function nextAccountNumber() {
+  const counter = await Counter.findOneAndUpdate(
+    { _id: "walletAccount" },
+    [{ $set: { seq: { $add: [{ $ifNull: ["$seq", FIRST_ACCOUNT_NUMBER - 1] }, 1] } } }],
+    { upsert: true, new: true },
+  );
+
+  if (!Number.isSafeInteger(counter.seq) || counter.seq > LAST_ACCOUNT_NUMBER) {
+    throw new AppError("No account numbers left.", 500);
+  }
+
+  return String(counter.seq);
+}
 
 async function ensureWallet(userId) {
   const existing = await Wallet.findOne({ userId });
   if (existing) return existing;
 
-  for (let attempt = 0; attempt < 5; attempt += 1) {
-    try {
-      return await Wallet.create({
-        userId,
-        accountNumber: accountNumber(),
-        balanceKobo: 0,
-        currency: "NGN",
-        status: "active",
-      });
-    } catch (error) {
-      if (!isDuplicateKey(error)) throw error;
-      const winner = await Wallet.findOne({ userId });
-      if (winner) return winner;
-    }
+  try {
+    return await Wallet.create({
+      userId,
+      accountNumber: await nextAccountNumber(),
+      balanceKobo: 0,
+      currency: "NGN",
+      status: "active",
+    });
+  } catch (error) {
+    if (!isDuplicateKey(error)) throw error;
+    const winner = await Wallet.findOne({ userId });
+    if (winner) return winner;
+    throw error;
   }
-
-  throw new AppError("Could not open a wallet.", 500);
 }
 
 async function listTransactions(userId, { limit = 20, cursor } = {}) {
