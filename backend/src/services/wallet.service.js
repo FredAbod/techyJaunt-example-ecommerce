@@ -11,7 +11,7 @@ async function nextAccountNumber() {
   const counter = await Counter.findOneAndUpdate(
     { _id: "walletAccount" },
     [{ $set: { seq: { $add: [{ $ifNull: ["$seq", FIRST_ACCOUNT_NUMBER - 1] }, 1] } } }],
-    { upsert: true, new: true },
+    { upsert: true, new: true, updatePipeline: true },
   );
 
   if (!Number.isSafeInteger(counter.seq) || counter.seq > LAST_ACCOUNT_NUMBER) {
