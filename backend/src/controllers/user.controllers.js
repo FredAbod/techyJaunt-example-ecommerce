@@ -83,7 +83,7 @@ const login = async (req, res) => {
       { expiresIn: "1h" },
     );
 
-    await sendLoginAlertEmail(user, new Date().toUTCString());
+   sendLoginAlertEmail(user, new Date().toUTCString());
 
     return res
       .status(200)
