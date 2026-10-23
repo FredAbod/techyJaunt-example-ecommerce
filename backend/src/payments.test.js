@@ -4,6 +4,7 @@ const crypto = require("crypto");
 const { signaturesMatch } = require("./services/paystack.client");
 const { paymentReference, orderNumber } = require("./helpers/reference");
 const { MIN_TOPUP_KOBO, MIN_PAYSTACK_KOBO, MAX_CHARGE_KOBO } = require("./helpers/money");
+const { chargeMatchesPayment } = require("./helpers/chargeAmount");
 
 test("Paystack stamp matches only the exact body and secret", () => {
   const secret = "sk_test_example";
@@ -29,6 +30,43 @@ test("references stay inside the characters Paystack allows", () => {
   assert.match(order, allowed);
   assert.notEqual(topup, paymentReference("wallet_topup"));
   assert.match(orderNumber(), /^TJ[A-F0-9]{10}$/);
+});
+
+test("a customer-paid Paystack fee still matches the amount we asked for", () => {
+  const payment = { amountKobo: 10_000, currency: "NGN" };
+
+  assert.equal(
+    chargeMatchesPayment(
+      { amount: 10_153, requested_amount: 10_000, fees: 153, currency: "NGN" },
+      payment,
+    ),
+    true,
+  );
+  assert.equal(
+    chargeMatchesPayment(
+      { amount: 10_000, requested_amount: 10_000, fees: 153, currency: "NGN" },
+      payment,
+    ),
+    true,
+  );
+  assert.equal(
+    chargeMatchesPayment({ amount: 10_000, currency: "NGN" }, payment),
+    true,
+  );
+  assert.equal(
+    chargeMatchesPayment(
+      { amount: 20_000, requested_amount: 10_000, fees: 153, currency: "NGN" },
+      payment,
+    ),
+    false,
+  );
+  assert.equal(
+    chargeMatchesPayment(
+      { amount: 10_153, requested_amount: 10_000, fees: 153, currency: "USD" },
+      payment,
+    ),
+    false,
+  );
 });
 
 test("money limits stay whole kobo amounts", () => {

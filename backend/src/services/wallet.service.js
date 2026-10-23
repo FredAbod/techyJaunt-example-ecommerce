@@ -1,34 +1,50 @@
 const Wallet = require("../models/wallets.models");
-const Counter = require("../models/counter.models");
+const User = require("../models/user.models");
 const TransactionHistory = require("../models/transactionHistory");
 const AppError = require("../helpers/appError");
 const { isDuplicateKey } = require("../helpers/mongoError");
 
-const FIRST_ACCOUNT_NUMBER = 1_000_000_000;
-const LAST_ACCOUNT_NUMBER = 9_999_999_999;
-
-async function nextAccountNumber() {
-  const counter = await Counter.findOneAndUpdate(
-    { _id: "walletAccount" },
-    [{ $set: { seq: { $add: [{ $ifNull: ["$seq", FIRST_ACCOUNT_NUMBER - 1] }, 1] } } }],
-    { upsert: true, new: true, updatePipeline: true },
-  );
-
-  if (!Number.isSafeInteger(counter.seq) || counter.seq > LAST_ACCOUNT_NUMBER) {
-    throw new AppError("No account numbers left.", 500);
+function accountNumberFromPhone(phone) {
+  const digits = String(phone || "").trim();
+  if (!digits) {
+    throw new AppError("Add a phone number before opening a wallet.", 400, "phone_required");
   }
 
-  return String(counter.seq);
+  const accountNumber = digits.replace(/^0/, "");
+  if (!/^\d{10}$/.test(accountNumber)) {
+    throw new AppError(
+      "A phone number needs a leading 0 and 11 digits to open a wallet.",
+      400,
+      "invalid_phone",
+    );
+  }
+
+  return accountNumber;
 }
 
 async function ensureWallet(userId) {
+  const user = await User.findById(userId).select("phone");
+  if (!user) throw new AppError("User not found.", 404, "user_missing");
+
+  const accountNumber = accountNumberFromPhone(user.phone);
   const existing = await Wallet.findOne({ userId });
-  if (existing) return existing;
+
+  if (existing) {
+    if (existing.accountNumber === accountNumber) return existing;
+    existing.accountNumber = accountNumber;
+    try {
+      await existing.save();
+      return existing;
+    } catch (error) {
+      if (!isDuplicateKey(error)) throw error;
+      throw new AppError("This phone number is already used for a wallet.", 409, "account_taken");
+    }
+  }
 
   try {
     return await Wallet.create({
       userId,
-      accountNumber: await nextAccountNumber(),
+      accountNumber,
       balanceKobo: 0,
       currency: "NGN",
       status: "active",
@@ -37,7 +53,7 @@ async function ensureWallet(userId) {
     if (!isDuplicateKey(error)) throw error;
     const winner = await Wallet.findOne({ userId });
     if (winner) return winner;
-    throw error;
+    throw new AppError("This phone number is already used for a wallet.", 409, "account_taken");
   }
 }
 

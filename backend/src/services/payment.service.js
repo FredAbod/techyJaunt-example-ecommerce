@@ -10,6 +10,7 @@ const AppError = require("../helpers/appError");
 const { isDuplicateKey } = require("../helpers/mongoError");
 const { paymentReference, orderNumber } = require("../helpers/reference");
 const { MIN_PAYSTACK_KOBO, MAX_CHARGE_KOBO, MIN_TOPUP_KOBO } = require("../helpers/money");
+const { chargeMatchesPayment } = require("../helpers/chargeAmount");
 
 const CHANNELS = ["card", "bank", "ussd", "bank_transfer", "qr"];
 const TERMINAL_FAILURE = new Set(["failed", "abandoned", "reversed"]);
@@ -457,7 +458,7 @@ async function applySuccessfulCharge(session, paymentId, charge) {
     throw new AppError("This payment is already closed.", 409, "payment_closed");
   }
 
-  if (Number(charge.amount) !== payment.amountKobo || charge.currency !== "NGN") {
+  if (!chargeMatchesPayment(charge, payment)) {
     throw new AppError("Payment amount did not match what we charged.", 409, "amount_mismatch");
   }
 
@@ -534,7 +535,8 @@ async function confirmPayment({ reference, userId }) {
   if (payment.status === "success") {
     return loadOutcome(payment, { alreadySettled: true });
   }
-  if (payment.status === "failed" || payment.status === "abandoned") {
+  const falseMismatch = payment.status === "failed" && payment.failureReason === "amount_mismatch";
+  if ((payment.status === "failed" || payment.status === "abandoned") && !falseMismatch) {
     return loadOutcome(payment);
   }
 
@@ -553,7 +555,7 @@ async function confirmPayment({ reference, userId }) {
     return loadOutcome(payment, { pending: payment.status === "initialized" });
   }
 
-  if (Number(charge.amount) !== payment.amountKobo || charge.currency !== "NGN") {
+  if (!chargeMatchesPayment(charge, payment)) {
     await Payment.updateOne(
       { _id: payment._id, status: "initialized" },
       {
@@ -571,6 +573,19 @@ async function confirmPayment({ reference, userId }) {
       );
     }
     throw new AppError("Payment amount did not match what we charged.", 409, "amount_mismatch");
+  }
+
+  if (payment.status === "failed") {
+    const reopened = await Payment.findOneAndUpdate(
+      { _id: payment._id, status: "failed", failureReason: "amount_mismatch" },
+      { $set: { status: "initialized" }, $unset: { failureReason: "" } },
+      { new: true },
+    );
+    if (!reopened) {
+      const current = await Payment.findById(payment._id);
+      if (current?.status === "success") return loadOutcome(current, { alreadySettled: true });
+      if (current?.status !== "initialized") return loadOutcome(current);
+    }
   }
 
   try {
