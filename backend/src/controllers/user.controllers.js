@@ -31,7 +31,7 @@ const signUp = async (req, res) => {
     await newUser.save();
 
     try {
-      await sendOtpEmail(newUser, otp, {
+      sendOtpEmail(newUser, otp, {
         subject: "Your verification code",
         heading: "Verify your email",
         purpose: "verify your email address",

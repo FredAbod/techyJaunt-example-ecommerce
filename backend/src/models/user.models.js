@@ -63,7 +63,7 @@ const userSchema = new Schema({
     },
     phone: {
         type: String,
-        maxlength: 20,
+        maxlength: 13,
         default: null,
         unique: true,
         required: function requiredPhone() {

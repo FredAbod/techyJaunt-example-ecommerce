@@ -13,6 +13,7 @@ const signUpSchema = Joi.object({
   lastName: Joi.string().trim().min(1).max(50).required(),
   email: Joi.string().trim().email().required(),
   password: Joi.string().min(1).required(),
+  phone: Joi.string().trim().max(13).required(),
 });
 
 const loginSchema = Joi.object({
