@@ -14,9 +14,14 @@ const {
 const signUp = async (req, res) => {
   const { firstName, lastName, email, password, phone } = req.body;
   try {
+    // check if user already exists and phone number is already in use
     const existingUser = await User.findOne({ email });
     if (existingUser) {
-      return res.status(400).json({ message: "User already exists" });
+      return res.status(400).json({ message: "User already exists with this email" });
+    }
+    const existingUserByPhone = await User.findOne({ phone });
+    if (existingUserByPhone) {
+      return res.status(400).json({ message: "User already exists with this phone number" });
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
@@ -132,7 +137,7 @@ const resendOtp = async (req, res) => {
 
     const otp = assignOtp(user, "verify-email");
     await user.save();
-    await sendOtpEmail(user, otp, {
+     sendOtpEmail(user, otp, {
       subject: "Your verification code",
       heading: "Verify your email",
       purpose: "verify your email address",
